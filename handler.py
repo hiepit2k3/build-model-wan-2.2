@@ -8,9 +8,11 @@ import uuid
 import logging
 import urllib.request
 import urllib.parse
+import urllib.error
 import binascii # Base64 에러 처리를 위해 import
 import subprocess
 import time
+import shutil
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -98,7 +100,12 @@ def queue_prompt(prompt):
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode('utf-8')
     req = urllib.request.Request(url, data=data)
-    return json.loads(urllib.request.urlopen(req).read())
+    try:
+        return json.loads(urllib.request.urlopen(req).read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        logger.error(f"ComfyUI prompt failed with HTTP {exc.code}: {body}")
+        raise Exception(f"ComfyUI prompt failed with HTTP {exc.code}: {body}")
 
 def get_image(filename, subfolder, folder_type):
     url = f"http://{server_address}:8188/view"
@@ -189,6 +196,33 @@ def resolve_media_input(job_input, task_id, field_prefix, output_filename, defau
         raise Exception(f"Missing required {field_prefix} input. Use {field_prefix}_path, {field_prefix}_url, or {field_prefix}_base64.")
     return default_path
 
+def resolve_comfy_input(job_input, task_id, field_prefix, output_filename, required=False):
+    comfy_input_dir = "/ComfyUI/input"
+    task_input_dir = os.path.join(comfy_input_dir, task_id)
+    os.makedirs(task_input_dir, exist_ok=True)
+    relative_path = f"{task_id}/{output_filename}"
+    target_path = os.path.join(task_input_dir, output_filename)
+
+    if f"{field_prefix}_url" in job_input:
+        download_file_from_url(job_input[f"{field_prefix}_url"], target_path)
+        return relative_path
+    if f"{field_prefix}_base64" in job_input:
+        save_base64_to_file(job_input[f"{field_prefix}_base64"], task_input_dir, output_filename)
+        return relative_path
+    if f"{field_prefix}_path" in job_input:
+        source_path = job_input[f"{field_prefix}_path"]
+        if not os.path.exists(source_path):
+            raise Exception(f"{field_prefix}_path does not exist: {source_path}")
+        source_abs = os.path.abspath(source_path)
+        comfy_abs = os.path.abspath(comfy_input_dir)
+        if source_abs.startswith(comfy_abs + os.sep):
+            return os.path.relpath(source_abs, comfy_abs).replace(os.sep, "/")
+        shutil.copyfile(source_abs, target_path)
+        return relative_path
+    if required:
+        raise Exception(f"Missing required {field_prefix} input. Use {field_prefix}_path, {field_prefix}_url, or {field_prefix}_base64.")
+    return None
+
 def configure_s2v_workflow(job_input, image_path, audio_path):
     prompt = load_workflow("/new_Wan22_s2v_api.json")
 
@@ -221,11 +255,66 @@ def configure_s2v_workflow(job_input, image_path, audio_path):
 
     return prompt
 
+def run_prompt_and_return_video(prompt):
+    ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
+    logger.info(f"Connecting to WebSocket: {ws_url}")
+
+    http_url = f"http://{server_address}:8188/"
+    logger.info(f"Checking HTTP connection to: {http_url}")
+
+    max_http_attempts = 180
+    for http_attempt in range(max_http_attempts):
+        try:
+            urllib.request.urlopen(http_url, timeout=5)
+            logger.info(f"HTTP connection succeeded (attempt {http_attempt+1})")
+            break
+        except Exception as e:
+            logger.warning(f"HTTP connection failed (attempt {http_attempt+1}/{max_http_attempts}): {e}")
+            if http_attempt == max_http_attempts - 1:
+                raise Exception("Cannot connect to ComfyUI server.")
+            time.sleep(1)
+
+    ws = websocket.WebSocket()
+    max_attempts = int(180 / 5)
+    for attempt in range(max_attempts):
+        try:
+            ws.connect(ws_url)
+            logger.info(f"WebSocket connection succeeded (attempt {attempt+1})")
+            break
+        except Exception as e:
+            logger.warning(f"WebSocket connection failed (attempt {attempt+1}/{max_attempts}): {e}")
+            if attempt == max_attempts - 1:
+                raise Exception("WebSocket connection timed out.")
+            time.sleep(5)
+
+    try:
+        videos = get_videos(ws, prompt)
+    finally:
+        ws.close()
+
+    for node_id in videos:
+        if videos[node_id]:
+            return {"video": videos[node_id][0]}
+
+    return {"error": "Video not found."}
+
 def handler(job):
     job_input = job.get("input", {})
 
     logger.info(f"Received job input: {job_input}")
     task_id = f"task_{uuid.uuid4()}"
+
+    mode = str(job_input.get("mode", "")).lower()
+    has_audio_input = any(key in job_input for key in ("audio_path", "audio_url", "audio_base64"))
+    is_s2v = mode == "s2v" or has_audio_input
+    if not is_s2v:
+        raise Exception("This worker is S2V-only. Provide mode='s2v' with audio_path, audio_url, or audio_base64.")
+
+    logger.info("Using S2V-only workflow")
+    image_path = resolve_comfy_input(job_input, task_id, "image", "input_image.jpg", required=True)
+    audio_path = resolve_comfy_input(job_input, task_id, "audio", "input_audio.wav", required=True)
+    prompt = configure_s2v_workflow(job_input, image_path, audio_path)
+    return run_prompt_and_return_video(prompt)
 
     # 이미지 입력 처리 (image_path, image_url, image_base64 중 하나만 사용)
     image_path = None
@@ -256,7 +345,8 @@ def handler(job):
         raise Exception("This worker is S2V-only. Provide mode='s2v' with audio_path, audio_url, or audio_base64.")
     audio_path = None
     if is_s2v:
-        audio_path = resolve_media_input(job_input, task_id, "audio", "input_audio.wav", required=True)
+        image_path = resolve_comfy_input(job_input, task_id, "image", "input_image.jpg", required=True)
+        audio_path = resolve_comfy_input(job_input, task_id, "audio", "input_audio.wav", required=True)
     
     # LoRA 설정 확인 - 배열로 받아서 처리
     lora_pairs = job_input.get("lora_pairs", [])
