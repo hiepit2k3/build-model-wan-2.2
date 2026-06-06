@@ -1,0 +1,20 @@
+
+
+{
+    "title": "Wan2.2 S2V",
+    "description": "RunPod Serverless image option for Wan2.2 speech-to-video generation with ComfyUI, Kijai WanVideoWrapper, the fp8 S2V model, and wav2vec audio encoder.",
+    "type": "serverless",
+    "category": "video",
+    "iconUrl": "https://github.com/wlsdml1114/Engui_Studio/blob/main/assets/logo.png?raw=true",
+  
+    "config": {
+      "runsOn": "GPU",
+      "containerDiskInGb": 220,
+  
+      "gpuCount": 1,
+      "gpuIds": "ADA_32_PRO",
+      "allowedCudaVersions": [
+        "12.8"
+      ]
+    }
+}

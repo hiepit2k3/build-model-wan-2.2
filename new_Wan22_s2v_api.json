@@ -1,0 +1,224 @@
+{
+  "147": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP Loader"
+    }
+  },
+  "149": {
+    "inputs": {
+      "text": "bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards",
+      "clip": [
+        "147",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "150": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAE Loader"
+    }
+  },
+  "151": {
+    "inputs": {
+      "audio_encoder_name": "wav2vec2_large_english_fp16.safetensors"
+    },
+    "class_type": "AudioEncoderLoader",
+    "_meta": {
+      "title": "Audio Encoder Loader"
+    }
+  },
+  "152": {
+    "inputs": {
+      "seed": 42,
+      "steps": 20,
+      "cfg": 6,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "154",
+        0
+      ],
+      "positive": [
+        "153",
+        0
+      ],
+      "negative": [
+        "153",
+        1
+      ],
+      "latent_image": [
+        "153",
+        2
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "153": {
+    "inputs": {
+      "width": 640,
+      "height": 640,
+      "length": 77,
+      "batch_size": 1,
+      "positive": [
+        "159",
+        0
+      ],
+      "negative": [
+        "149",
+        0
+      ],
+      "vae": [
+        "150",
+        0
+      ],
+      "audio_encoder_output": [
+        "173",
+        0
+      ],
+      "ref_image": [
+        "160",
+        0
+      ]
+    },
+    "class_type": "WanSoundImageToVideo",
+    "_meta": {
+      "title": "Wan Sound Image To Video"
+    }
+  },
+  "154": {
+    "inputs": {
+      "shift": 8,
+      "model": [
+        "161",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "Model Sampling SD3"
+    }
+  },
+  "159": {
+    "inputs": {
+      "text": "A person speaks naturally to the camera with subtle facial expression and head movement.",
+      "clip": [
+        "147",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "160": {
+    "inputs": {
+      "image": "example_image.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "161": {
+    "inputs": {
+      "unet_name": "wan2.2_s2v_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Diffusion Model Loader"
+    }
+  },
+  "162": {
+    "inputs": {
+      "audio": "input_audio.wav"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "Load Audio"
+    }
+  },
+  "167": {
+    "inputs": {
+      "frame_rate": 16,
+      "images": [
+        "148",
+        0
+      ],
+      "audio": [
+        "162",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "168": {
+    "inputs": {
+      "filename_prefix": "Wan22_S2V",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "167",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "173": {
+    "inputs": {
+      "audio_encoder": [
+        "151",
+        0
+      ],
+      "audio": [
+        "162",
+        0
+      ]
+    },
+    "class_type": "AudioEncoderEncode",
+    "_meta": {
+      "title": "Audio Encoder Encode"
+    }
+  },
+  "148": {
+    "inputs": {
+      "samples": [
+        "152",
+        0
+      ],
+      "vae": [
+        "150",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  }
+}
