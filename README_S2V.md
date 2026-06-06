@@ -4,10 +4,10 @@ This repository now supports building a separate RunPod Serverless image that in
 
 ## Build
 
-Use the existing Dockerfile with the S2V build argument enabled:
+Use the S2V-only Dockerfile:
 
 ```bash
-docker build -t your-dockerhub-user/wan22-s2v:latest --build-arg INCLUDE_WAN22_S2V=true .
+docker build -t your-dockerhub-user/wan22-s2v:latest .
 ```
 
 Then push it:
@@ -18,7 +18,7 @@ docker push your-dockerhub-user/wan22-s2v:latest
 
 ## Included S2V Assets
 
-When `INCLUDE_WAN22_S2V=true`, the image downloads:
+The image downloads only the S2V assets required by `new_Wan22_s2v_api.json`:
 
 - `/ComfyUI/models/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors`
 - `/ComfyUI/models/audio_encoders/wav2vec2_large_english_fp16.safetensors`
@@ -29,7 +29,7 @@ The S2V RunPod manifest is available at `.runpod/hub.s2v.json`.
 
 ## Handler Note
 
-The S2V endpoint is selected when `mode` is `s2v` or any `audio_*` input is provided. Use these input fields:
+This worker is S2V-only. The endpoint is selected when `mode` is `s2v` or any `audio_*` input is provided. Use these input fields:
 
 - `image_path`, `image_url`, or `image_base64`
 - `audio_path`, `audio_url`, or `audio_base64`

@@ -252,6 +252,8 @@ def handler(job):
     mode = str(job_input.get("mode", "")).lower()
     has_audio_input = any(key in job_input for key in ("audio_path", "audio_url", "audio_base64"))
     is_s2v = mode == "s2v" or has_audio_input
+    if not is_s2v:
+        raise Exception("This worker is S2V-only. Provide mode='s2v' with audio_path, audio_url, or audio_base64.")
     audio_path = None
     if is_s2v:
         audio_path = resolve_media_input(job_input, task_id, "audio", "input_audio.wav", required=True)
