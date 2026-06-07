@@ -252,6 +252,8 @@ def configure_s2v_workflow(job_input, image_path, audio_path):
     prompt["153"]["inputs"]["height"] = height
     prompt["153"]["inputs"]["length"] = length
     prompt["167"]["inputs"]["fps"] = frame_rate
+    prompt["167"]["inputs"]["frame_rate"] = frame_rate
+    logger.info(f"S2V CreateVideo fps set to: {frame_rate}")
 
     return prompt
 
