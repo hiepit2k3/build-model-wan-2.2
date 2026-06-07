@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 server_address = os.getenv('SERVER_ADDRESS', '127.0.0.1')
 client_id = str(uuid.uuid4())
-WORKER_DEBUG_MARKER = "s2v-fps-debug-2026-06-07-01"
+WORKER_DEBUG_MARKER = "s2v-fps-debug-2026-06-07-02"
+CREATE_VIDEO_FPS = 16
 def to_nearest_multiple_of_16(value):
     """주어진 값을 가장 가까운 16의 배수로 보정, 최소 16 보장"""
     try:
@@ -161,10 +162,33 @@ def load_workflow(workflow_path):
         WORKER_DEBUG_MARKER,
     )
     with open(workflow_path, 'r') as file:
-        return json.load(file)
+        prompt = json.load(file)
+    ensure_create_video_fps(prompt)
+    log_create_video_nodes(prompt, f"after_load_workflow:{workflow_path}")
+    return prompt
 
 def log_create_video_nodes(prompt, stage):
     found = False
+    node_167 = prompt.get("167")
+    logger.info(
+        "Node 167 diagnostic stage=%s exists=%s class_type=%s inputs=%s marker=%s",
+        stage,
+        node_167 is not None,
+        node_167.get("class_type") if isinstance(node_167, dict) else None,
+        json.dumps(node_167.get("inputs", {}), sort_keys=True) if isinstance(node_167, dict) else "{}",
+        WORKER_DEBUG_MARKER,
+    )
+    video_nodes = [
+        f"{node_id}:{node.get('class_type')}"
+        for node_id, node in prompt.items()
+        if isinstance(node, dict) and "Video" in str(node.get("class_type", ""))
+    ]
+    logger.info(
+        "Video-class diagnostic stage=%s nodes=%s marker=%s",
+        stage,
+        ",".join(video_nodes) if video_nodes else "none",
+        WORKER_DEBUG_MARKER,
+    )
     for node_id, node in prompt.items():
         if node.get("class_type") != "CreateVideo":
             continue
@@ -179,19 +203,29 @@ def log_create_video_nodes(prompt, stage):
     if not found:
         logger.warning("CreateVideo diagnostic stage=%s found=false marker=%s", stage, WORKER_DEBUG_MARKER)
 
-def ensure_create_video_fps(prompt, default_fps=16):
+def ensure_create_video_fps(prompt, default_fps=CREATE_VIDEO_FPS):
     for node_id, node in prompt.items():
-        if node.get("class_type") != "CreateVideo":
+        if not isinstance(node, dict):
+            continue
+        if node.get("class_type") != "CreateVideo" and node_id != "167":
             continue
         inputs = node.setdefault("inputs", {})
-        fps = inputs.get("fps", inputs.get("frame_rate", default_fps))
-        try:
-            fps = int(fps)
-        except (TypeError, ValueError):
-            fps = default_fps
+        fps = default_fps
         inputs["fps"] = fps
-        inputs.setdefault("frame_rate", fps)
-        logger.info(f"CreateVideo node {node_id} fps set to: {fps}")
+        inputs["frame_rate"] = fps
+        logger.info("CreateVideo/node-167 fps normalized node=%s fps=%s marker=%s", node_id, fps, WORKER_DEBUG_MARKER)
+
+def set_create_video_fps(prompt, fps=CREATE_VIDEO_FPS):
+    fps = CREATE_VIDEO_FPS
+    for node_id, node in prompt.items():
+        if not isinstance(node, dict):
+            continue
+        if node.get("class_type") != "CreateVideo" and node_id != "167":
+            continue
+        inputs = node.setdefault("inputs", {})
+        inputs["fps"] = fps
+        inputs["frame_rate"] = fps
+        logger.info("CreateVideo/node-167 fps forced node=%s fps=%s marker=%s", node_id, fps, WORKER_DEBUG_MARKER)
 
 def get_videos(ws, prompt):
     prompt_id = queue_prompt(prompt)['prompt_id']
@@ -279,8 +313,7 @@ def configure_s2v_workflow(job_input, image_path, audio_path):
 
     steps = int(job_input.get("steps", 20))
     cfg = float(job_input.get("cfg", 6.0))
-    frame_rate = int(job_input.get("frame_rate", 16))
-    frame_rate = max(8, min(frame_rate, 30))
+    frame_rate = CREATE_VIDEO_FPS
 
     prompt["160"]["inputs"]["image"] = image_path
     prompt["162"]["inputs"]["audio"] = audio_path
@@ -292,8 +325,7 @@ def configure_s2v_workflow(job_input, image_path, audio_path):
     prompt["153"]["inputs"]["width"] = width
     prompt["153"]["inputs"]["height"] = height
     prompt["153"]["inputs"]["length"] = length
-    prompt["167"]["inputs"]["fps"] = frame_rate
-    prompt["167"]["inputs"]["frame_rate"] = frame_rate
+    set_create_video_fps(prompt, frame_rate)
     logger.info(f"S2V CreateVideo fps set to: {frame_rate}")
     log_create_video_nodes(prompt, "after_configure_s2v_workflow")
 
@@ -410,8 +442,7 @@ def handler(job):
     
     length = job_input.get("length", 81)
     steps = job_input.get("steps", 10)
-    frame_rate = int(job_input.get("frame_rate", 16))
-    frame_rate = max(8, min(frame_rate, 30))
+    frame_rate = CREATE_VIDEO_FPS
 
     prompt["244"]["inputs"]["image"] = image_path
     prompt["541"]["inputs"]["num_frames"] = length
@@ -480,6 +511,8 @@ def handler(job):
     if is_s2v:
         logger.info("Using S2V workflow")
         prompt = configure_s2v_workflow(job_input, image_path, audio_path)
+    set_create_video_fps(prompt, frame_rate)
+    log_create_video_nodes(prompt, "legacy_before_ws_submit")
 
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
     logger.info(f"Connecting to WebSocket: {ws_url}")
@@ -516,6 +549,8 @@ def handler(job):
             if attempt == max_attempts - 1:
                 raise Exception("웹소켓 연결 시간 초과 (3분)")
             time.sleep(5)
+    set_create_video_fps(prompt, frame_rate)
+    log_create_video_nodes(prompt, "legacy_before_get_videos")
     videos = get_videos(ws, prompt)
     ws.close()
 
