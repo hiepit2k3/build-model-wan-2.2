@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 server_address = os.getenv('SERVER_ADDRESS', '127.0.0.1')
 client_id = str(uuid.uuid4())
+WORKER_DEBUG_MARKER = "s2v-fps-debug-2026-06-07-01"
 def to_nearest_multiple_of_16(value):
     """주어진 값을 가장 가까운 16의 배수로 보정, 최소 16 보장"""
     try:
@@ -97,6 +98,8 @@ def save_base64_to_file(base64_data, temp_dir, output_filename):
 def queue_prompt(prompt):
     url = f"http://{server_address}:8188/prompt"
     logger.info(f"Queueing prompt to: {url}")
+    ensure_create_video_fps(prompt)
+    log_create_video_nodes(prompt, "before_queue_prompt")
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode('utf-8')
     req = urllib.request.Request(url, data=data)
@@ -150,8 +153,45 @@ def get_videos(ws, prompt):
     return output_videos
 
 def load_workflow(workflow_path):
+    logger.info(
+        "Loading workflow path=%s exists=%s size=%s marker=%s",
+        workflow_path,
+        os.path.exists(workflow_path),
+        os.path.getsize(workflow_path) if os.path.exists(workflow_path) else "missing",
+        WORKER_DEBUG_MARKER,
+    )
     with open(workflow_path, 'r') as file:
         return json.load(file)
+
+def log_create_video_nodes(prompt, stage):
+    found = False
+    for node_id, node in prompt.items():
+        if node.get("class_type") != "CreateVideo":
+            continue
+        found = True
+        logger.info(
+            "CreateVideo diagnostic stage=%s node=%s inputs=%s marker=%s",
+            stage,
+            node_id,
+            json.dumps(node.get("inputs", {}), sort_keys=True),
+            WORKER_DEBUG_MARKER,
+        )
+    if not found:
+        logger.warning("CreateVideo diagnostic stage=%s found=false marker=%s", stage, WORKER_DEBUG_MARKER)
+
+def ensure_create_video_fps(prompt, default_fps=16):
+    for node_id, node in prompt.items():
+        if node.get("class_type") != "CreateVideo":
+            continue
+        inputs = node.setdefault("inputs", {})
+        fps = inputs.get("fps", inputs.get("frame_rate", default_fps))
+        try:
+            fps = int(fps)
+        except (TypeError, ValueError):
+            fps = default_fps
+        inputs["fps"] = fps
+        inputs.setdefault("frame_rate", fps)
+        logger.info(f"CreateVideo node {node_id} fps set to: {fps}")
 
 def get_videos(ws, prompt):
     prompt_id = queue_prompt(prompt)['prompt_id']
@@ -225,6 +265,7 @@ def resolve_comfy_input(job_input, task_id, field_prefix, output_filename, requi
 
 def configure_s2v_workflow(job_input, image_path, audio_path):
     prompt = load_workflow("/new_Wan22_s2v_api.json")
+    log_create_video_nodes(prompt, "after_load_s2v_workflow")
 
     width = to_nearest_multiple_of_16(job_input.get("width", 640))
     height = to_nearest_multiple_of_16(job_input.get("height", 640))
@@ -254,6 +295,7 @@ def configure_s2v_workflow(job_input, image_path, audio_path):
     prompt["167"]["inputs"]["fps"] = frame_rate
     prompt["167"]["inputs"]["frame_rate"] = frame_rate
     logger.info(f"S2V CreateVideo fps set to: {frame_rate}")
+    log_create_video_nodes(prompt, "after_configure_s2v_workflow")
 
     return prompt
 
@@ -303,6 +345,7 @@ def run_prompt_and_return_video(prompt):
 def handler(job):
     job_input = job.get("input", {})
 
+    logger.info("Handler started marker=%s", WORKER_DEBUG_MARKER)
     logger.info(f"Received job input: {job_input}")
     task_id = f"task_{uuid.uuid4()}"
 
